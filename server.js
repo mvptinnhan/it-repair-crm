@@ -1,5 +1,7 @@
 // server.js (FINAL PRODUCTION VERSION)
-
+console.log("🔑 ENV OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "✅ Có" : "❌ Không");
+console.log("🔑 Key length:", process.env.OPENAI_API_KEY?.length);
+console.log("🔑 Key prefix:", process.env.OPENAI_API_KEY?.substring(0, 10) + "...");
 import express from "express";
 import cors from "cors";
 import fetch from "node-fetch";
