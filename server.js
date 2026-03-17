@@ -45,8 +45,12 @@ const SERVICE_MAP = {
 // =============================
 // AI ANALYZE
 // =============================
-app.post("/analyze", async (req, res) => {
+aapp.post("/analyze", async (req, res) => {
   const { text } = req.body;
+  
+  console.log("🎯 /analyze POST hit at", new Date().toISOString());
+  console.log("📝 Input text:", text);
+  console.log("🔑 Using API key:", OPENAI_API_KEY ? "✅ Yes" : "❌ No");
 
   const prompt = `
 Trả về JSON duy nhất:
@@ -59,6 +63,8 @@ Trả về JSON duy nhất:
 Lỗi: ${text}`;
 
   try {
+    console.log("📤 Gửi request đến OpenAI...");
+    
     const response = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -72,8 +78,48 @@ Lỗi: ${text}`;
       })
     });
 
+    console.log("📥 OpenAI response status:", response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("❌ OpenAI lỗi:", response.status, errorText);
+      return res.json({ 
+        success: false, 
+        error: "AI error", 
+        status: response.status,
+        detail: errorText.substring(0, 200)
+      });
+    }
+
     const data = await response.json();
+    console.log("✅ OpenAI thành công");
+    
     let content = data.choices[0].message.content;
+    console.log("📝 Raw content:", content);
+
+    // FIX JSON
+    content = content.replace(/```json|```/g, "").trim();
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+      console.log("✅ Parsed JSON:", parsed);
+    } catch (e) {
+      console.error("❌ JSON parse error:", e.message);
+      return res.json({ success:false, error:"JSON parse error", raw: content });
+    }
+
+    const service = SERVICE_MAP[parsed.issue] || { name:"Kiểm tra", price:"Liên hệ" };
+    console.log("💰 Service:", service);
+
+    res.json({ success:true, ai: parsed, service });
+
+  } catch (err) {
+    console.error("🔥 Server error:", err.message);
+    console.error("📚 Stack trace:", err.stack);
+    res.json({ success:false, error:"AI error", message: err.message });
+  }
+});
 
     // FIX JSON
     content = content.replace(/```json|```/g, "").trim();
