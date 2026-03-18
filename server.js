@@ -21,7 +21,7 @@ const MONGO_URL = process.env.MONGO_URL;
 // =============================
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-3.1-pro-preview",  // Model mới nhất thay thế 3 Pro Preview
+  model: "gemini-2.5-flash",  // Thay vì gemini-3.1-pro-preview
   generationConfig: {
     temperature: 0.1,
     maxOutputTokens: 500,
