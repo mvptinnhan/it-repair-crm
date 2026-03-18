@@ -1,4 +1,4 @@
-// server.js (GEMINI PRODUCTION VERSION - Using gemini-1.0-pro)
+// server.js (GEMINI PRODUCTION VERSION - Using gemini-2.0-flash-exp)
 console.log("🔑 ENV GEMINI_API_KEY:", process.env.GEMINI_API_KEY ? "✅ Có" : "❌ Không");
 console.log("🔑 Key length:", process.env.GEMINI_API_KEY?.length);
 console.log("🔑 Key prefix:", process.env.GEMINI_API_KEY?.substring(0, 10) + "...");
@@ -17,11 +17,11 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MONGO_URL = process.env.MONGO_URL;
 
 // =============================
-// INIT GEMINI-1.0-PRO
+// INIT GEMINI-2.0-FLASH-EXP
 // =============================
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.0-pro",  // Model ổn định, chắc chắn tồn tại
+  model: "gemini-2.0-flash-exp",  // Model mới nhất đang hoạt động
   generationConfig: {
     temperature: 0.1,
     maxOutputTokens: 500,
@@ -67,7 +67,7 @@ app.use((req, res, next) => {
 });
 
 // =============================
-// AI ANALYZE WITH GEMINI-1.0-PRO
+// AI ANALYZE WITH GEMINI-2.0
 // =============================
 app.post("/analyze", async (req, res) => {
   const { text } = req.body;
@@ -79,8 +79,7 @@ app.post("/analyze", async (req, res) => {
     return res.json({ success: false, error: "Missing text input" });
   }
 
-  // Prompt được thiết kế để Gemini trả về JSON chính xác
-  const prompt = `Bạn là chuyên gia sửa máy tính. Hãy phân tích lỗi sau và trả về MỘT ĐỐI TƯỢNG JSON hợp lệ (không markdown, không giải thích, chỉ JSON):
+  const prompt = `Bạn là chuyên gia sửa máy tính. Hãy phân tích lỗi sau và trả về JSON DUY NHẤT:
 
 {
   "intent": "repair",
@@ -90,17 +89,17 @@ app.post("/analyze", async (req, res) => {
 }
 
 Quy tắc:
-- intent: "repair" nếu cần sửa chữa, "optimize" nếu cần tối ưu
+- intent: "repair" (sửa chữa) hoặc "optimize" (tối ưu)
 - device: "pc" hoặc "laptop"
-- issue: "no_power" (không nguồn), "slow" (chậm), "virus" (nhiễm virus), "blue_screen" (màn hình xanh), "other" (khác)
-- suggestion: hướng xử lý ngắn gọn bằng tiếng Việt (1-2 câu)
+- issue: "no_power" (không nguồn), "slow" (chậm), "virus", "blue_screen", "other"
+- suggestion: hướng xử lý bằng tiếng Việt (1-2 câu)
 
-Lỗi cần phân tích: "${text}"
+Lỗi: "${text}"
 
-CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT CỨ THỨ GÌ KHÁC.`;
+CHỈ TRẢ VỀ JSON, KHÔNG THÊM GÌ KHÁC.`;
 
   try {
-    console.log("📤 Gửi request đến Gemini-1.0-pro...");
+    console.log("📤 Gửi request đến Gemini-2.0...");
     
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -108,185 +107,99 @@ CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT CỨ THỨ GÌ KHÁC.`;
     
     console.log("📥 Gemini raw response:", content);
 
-    // Xử lý response - loại bỏ markdown và khoảng trắng thừa
+    // Xử lý response
     content = content.replace(/```json|```|`/g, "").trim();
-    
-    // Tìm JSON trong response (nếu có text thừa)
     const jsonMatch = content.match(/\{[\s\S]*\}/);
-    let parsed;
     
     if (jsonMatch) {
       try {
-        parsed = JSON.parse(jsonMatch[0]);
-        console.log("✅ Parsed JSON from Gemini:", parsed);
-        
-        // Validate cấu trúc JSON
-        if (!parsed.intent || !parsed.device || !parsed.issue || !parsed.suggestion) {
-          throw new Error("Thiếu trường dữ liệu trong JSON");
-        }
+        const parsed = JSON.parse(jsonMatch[0]);
+        console.log("✅ Parsed JSON:", parsed);
         
         const service = SERVICE_MAP[parsed.issue] || SERVICE_MAP.other;
-        
-        return res.json({ 
-          success: true, 
-          ai: parsed, 
-          service 
-        });
-        
+        return res.json({ success: true, ai: parsed, service });
       } catch (e) {
         console.error("❌ JSON parse error:", e.message);
-        // Nếu parse lỗi, chuyển sang xử lý thông minh
       }
     }
     
-    // Xử lý thông minh khi Gemini không trả về JSON đúng format
-    console.log("⚠️ Gemini không trả về JSON, xử lý thông minh...");
-    
-    let intent = "repair";
-    let device = "pc";
-    let issue = "other";
-    let suggestion = "Vui lòng gọi 0900 000 000 để được tư vấn trực tiếp.";
-    
-    // Phân tích text response từ Gemini để lấy thông tin
-    const lowerContent = content.toLowerCase();
+    // Fallback thông minh dựa trên text
     const lowerText = text.toLowerCase();
+    let issue = "other";
+    let suggestion = "Vui lòng gọi 0900 000 000 để được tư vấn.";
     
-    // Xác định issue dựa trên nội dung
-    if (lowerText.includes("không lên") || lowerText.includes("không nguồn") || lowerContent.includes("nguồn")) {
+    if (lowerText.includes("không lên") || lowerText.includes("không nguồn")) {
       issue = "no_power";
       suggestion = "Kiểm tra nguồn điện, dây nguồn, nút nguồn. Nếu vẫn không lên, có thể do mainboard.";
-    } else if (lowerText.includes("chậm") || lowerText.includes("đơ") || lowerContent.includes("chậm")) {
+    } else if (lowerText.includes("chậm") || lowerText.includes("đơ")) {
       issue = "slow";
-      intent = "optimize";
-      suggestion = "Vệ sinh quạt tản nhiệt, tối ưu Windows, nâng cấp RAM hoặc SSD nếu cần.";
-    } else if (lowerText.includes("virus") || lowerContent.includes("virus")) {
+      suggestion = "Vệ sinh quạt tản nhiệt, tối ưu Windows, nâng cấp RAM hoặc SSD.";
+    } else if (lowerText.includes("virus")) {
       issue = "virus";
-      suggestion = "Quét virus bằng phần mềm diệt virus, cài lại Windows nếu nặng.";
-    } else if (lowerText.includes("xanh") || lowerContent.includes("xanh") || lowerContent.includes("blue screen")) {
+      suggestion = "Quét virus, cài lại Windows nếu nặng.";
+    } else if (lowerText.includes("xanh")) {
       issue = "blue_screen";
-      suggestion = "Kiểm tra driver mới cài, gỡ phần mềm xung đột, khôi phục hệ thống.";
-    } else if (content.length > 20) {
-      // Nếu có response từ Gemini nhưng không parse được, dùng luôn suggestion từ Gemini
-      suggestion = content.substring(0, 150).replace(/[{}"']/g, "").trim();
+      suggestion = "Kiểm tra driver, gỡ phần mềm mới cài.";
     }
     
     const aiResponse = {
-      intent,
-      device,
+      intent: issue === "slow" ? "optimize" : "repair",
+      device: "pc",
       issue,
       suggestion
     };
     
-    console.log("✅ AI response (processed):", aiResponse);
-    
-    const service = SERVICE_MAP[issue] || SERVICE_MAP.other;
-    
-    return res.json({ 
-      success: true, 
-      ai: aiResponse, 
-      service 
-    });
+    const service = SERVICE_MAP[issue];
+    return res.json({ success: true, ai: aiResponse, service });
 
   } catch (err) {
     console.error("🔥 Gemini error:", err.message);
-    console.error("📚 Stack trace:", err.stack);
     
-    // Fallback cuối cùng khi Gemini hoàn toàn không hoạt động
-    const fallbackSolutions = {
-      "no_power": {
-        intent: "repair",
-        device: "pc",
-        issue: "no_power",
-        suggestion: "Kiểm tra nguồn điện, dây nguồn, nút nguồn. Nếu vẫn không lên, có thể do mainboard hoặc nguồn hỏng."
+    // Fallback cứng
+    const fallback = {
+      no_power: {
+        ai: { intent: "repair", device: "pc", issue: "no_power", suggestion: "Kiểm tra nguồn điện, dây nguồn, nút nguồn." },
+        service: SERVICE_MAP.no_power
       },
-      "slow": {
-        intent: "optimize",
-        device: "pc",
-        issue: "slow",
-        suggestion: "Vệ sinh quạt tản nhiệt, tối ưu Windows, nâng cấp RAM hoặc SSD nếu cần."
-      },
-      "virus": {
-        intent: "repair",
-        device: "pc",
-        issue: "virus",
-        suggestion: "Quét virus bằng phần mềm diệt virus, cài lại Windows nếu nặng."
-      },
-      "blue_screen": {
-        intent: "repair",
-        device: "pc",
-        issue: "blue_screen",
-        suggestion: "Kiểm tra driver mới cài, gỡ phần mềm xung đột, khởi động vào Safe Mode."
-      },
-      "other": {
-        intent: "repair",
-        device: "pc",
-        issue: "other",
-        suggestion: "Vui lòng gọi 0900 000 000 để được tư vấn trực tiếp."
+      slow: {
+        ai: { intent: "optimize", device: "pc", issue: "slow", suggestion: "Vệ sinh quạt, tối ưu Windows." },
+        service: SERVICE_MAP.slow
       }
     };
     
-    // Xác định issue dựa trên text gốc
     let issue = "other";
-    if (text.includes("không lên") || text.includes("không nguồn")) issue = "no_power";
-    else if (text.includes("chậm") || text.includes("đơ")) issue = "slow";
-    else if (text.includes("virus")) issue = "virus";
-    else if (text.includes("xanh")) issue = "blue_screen";
-    
-    const fallbackAI = fallbackSolutions[issue];
+    if (text.includes("không lên")) issue = "no_power";
+    else if (text.includes("chậm")) issue = "slow";
     
     return res.json({ 
       success: true, 
-      ai: fallbackAI,
-      service: SERVICE_MAP[issue] || SERVICE_MAP.other,
-      note: "Gemini đang gặp sự cố, dùng chế độ dự phòng"
+      ...(fallback[issue] || fallback.no_power),
+      note: "Dùng chế độ dự phòng"
     });
   }
 });
 
 // =============================
-// CREATE BOOKING
+// BOOKING ROUTES (giữ nguyên)
 // =============================
 app.post("/booking", async (req, res) => {
   try {
-    const item = await Booking.create({
-      ...req.body,
-      status: "new",
-      created_at: new Date()
-    });
-    console.log("✅ Booking created:", item._id);
+    const item = await Booking.create({ ...req.body, status: "new", created_at: new Date() });
     res.json({ success: true, data: item });
   } catch (err) {
-    console.error("❌ Booking error:", err.message);
     res.json({ success: false, error: err.message });
   }
 });
 
-// =============================
-// GET BOOKINGS
-// =============================
 app.get("/bookings", async (req, res) => {
-  try {
-    const data = await Booking.find().sort({ created_at: -1 });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Get bookings error:", err.message);
-    res.json({ success: false, error: err.message });
-  }
+  const data = await Booking.find().sort({ created_at: -1 });
+  res.json(data);
 });
 
-// =============================
-// UPDATE STATUS
-// =============================
 app.post("/booking/update", async (req, res) => {
   const { id, status } = req.body;
-  try {
-    await Booking.findByIdAndUpdate(id, { status });
-    console.log("✅ Booking updated:", id, status);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Update error:", err.message);
-    res.json({ success: false, error: err.message });
-  }
+  await Booking.findByIdAndUpdate(id, { status });
+  res.json({ success: true });
 });
 
 // =============================
@@ -296,21 +209,10 @@ app.get("/", (req, res) => {
   res.send("IT Repair CRM API running with Gemini 🚀");
 });
 
-// =============================
-// 404 HANDLER
-// =============================
 app.use((req, res) => {
-  res.status(404).json({ 
-    success: false, 
-    error: "Endpoint not found",
-    method: req.method,
-    path: req.url
-  });
+  res.status(404).json({ success: false, error: "Endpoint not found" });
 });
 
-// =============================
-// START SERVER
-// =============================
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
