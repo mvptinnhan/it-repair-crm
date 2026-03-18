@@ -1,20 +1,30 @@
-// server.js (FINAL PRODUCTION VERSION)
-console.log("🔑 ENV OPENAI_API_KEY:", process.env.OPENAI_API_KEY ? "✅ Có" : "❌ Không");
-console.log("🔑 Key length:", process.env.OPENAI_API_KEY?.length);
-console.log("🔑 Key prefix:", process.env.OPENAI_API_KEY?.substring(0, 10) + "...");
+// server.js (GEMINI PRODUCTION VERSION)
+console.log("🔑 ENV GEMINI_API_KEY:", process.env.GEMINI_API_KEY ? "✅ Có" : "❌ Không");
+console.log("🔑 Key length:", process.env.GEMINI_API_KEY?.length);
+console.log("🔑 Key prefix:", process.env.GEMINI_API_KEY?.substring(0, 10) + "...");
 
 import express from "express";
 import cors from "cors";
-import fetch from "node-fetch";
 import mongoose from "mongoose";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MONGO_URL = process.env.MONGO_URL;
+
+// Khởi tạo Gemini
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ 
+  model: "gemini-1.5-flash",
+  generationConfig: {
+    temperature: 0.2,
+    maxOutputTokens: 500,
+  }
+});
 
 // =============================
 // CONNECT DATABASE
@@ -40,7 +50,9 @@ const Booking = mongoose.model("Booking", BookingSchema);
 const SERVICE_MAP = {
   no_power: { name: "Sửa máy không lên nguồn", price: "100k - 500k" },
   slow: { name: "Tối ưu / nâng cấp", price: "50k - 300k" },
-  virus: { name: "Diệt virus", price: "100k - 250k" }
+  virus: { name: "Diệt virus", price: "100k - 250k" },
+  blue_screen: { name: "Sửa lỗi màn hình xanh", price: "150k - 400k" },
+  other: { name: "Kiểm tra tổng quát", price: "Liên hệ" }
 };
 
 // Middleware log mọi request
@@ -53,7 +65,7 @@ app.use((req, res, next) => {
 });
 
 // =============================
-// AI ANALYZE - CHỈ MỘT ROUTE DUY NHẤT
+// AI ANALYZE WITH GEMINI
 // =============================
 app.post("/analyze", async (req, res) => {
   const { text } = req.body;
@@ -62,102 +74,73 @@ app.post("/analyze", async (req, res) => {
   console.log("📝 Input text:", text);
 
   if (!text) {
-    return res.json({ 
-      success: false, 
-      error: "Missing text input" 
-    });
+    return res.json({ success: false, error: "Missing text input" });
   }
 
-  const prompt = `
-Trả về JSON duy nhất:
+  const prompt = `Bạn là chuyên gia sửa máy tính. Phân tích lỗi và trả về JSON:
 {
-"intent":"repair|optimize",
-"device":"pc|laptop",
-"issue":"no_power|slow|virus|other",
-"suggestion":"..."
+  "intent": "repair|optimize",
+  "device": "pc|laptop", 
+  "issue": "no_power|slow|virus|blue_screen|other",
+  "suggestion": "hướng xử lý bằng tiếng Việt"
 }
-Lỗi: ${text}`;
+Lỗi: "${text}"`;
 
   try {
-    console.log("📤 Gửi request đến OpenAI...");
+    console.log("📤 Gửi request đến Gemini...");
     
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-3.5-turbo",
-        messages: [{ role: "user", content: prompt }],
-        temperature: 0
-      })
-    });
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let content = response.text();
+    
+    console.log("📥 Gemini response:", content);
 
-    console.log("📥 OpenAI response status:", response.status);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error("❌ OpenAI lỗi:", response.status, errorText);
-      return res.json({ 
-        success: false, 
-        error: "AI error", 
-        status: response.status,
-        detail: errorText.substring(0, 200)
-      });
-    }
-
-    const data = await response.json();
-    console.log("✅ OpenAI thành công");
-    
-    if (!data.choices || !data.choices[0]) {
-      throw new Error("Invalid OpenAI response structure");
-    }
-    
-    let content = data.choices[0].message.content;
-    console.log("📝 Raw content:", content);
-
-    // FIX JSON
+    // Xử lý JSON
     content = content.replace(/```json|```/g, "").trim();
-
-    let parsed;
-    try {
-      parsed = JSON.parse(content);
-      console.log("✅ Parsed JSON:", parsed);
-    } catch (e) {
-      console.error("❌ JSON parse error:", e.message);
-      return res.json({ 
-        success: false, 
-        error: "JSON parse error", 
-        raw: content 
-      });
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    
+    if (!jsonMatch) {
+      throw new Error("Không tìm thấy JSON");
     }
+    
+    const parsed = JSON.parse(jsonMatch[0]);
+    console.log("✅ Parsed:", parsed);
 
-    const service = SERVICE_MAP[parsed.issue] || { 
-      name: "Kiểm tra tổng quát", 
-      price: "Liên hệ" 
-    };
-    console.log("💰 Service:", service);
+    const service = SERVICE_MAP[parsed.issue] || SERVICE_MAP.other;
 
-    return res.json({ 
-      success: true, 
-      ai: parsed, 
-      service 
-    });
+    return res.json({ success: true, ai: parsed, service });
 
   } catch (err) {
-    console.error("🔥 Server error:", err.message);
-    console.error("📚 Stack trace:", err.stack);
+    console.error("🔥 Gemini error:", err.message);
+    
+    // Fallback thông minh
+    const fallback = {
+      no_power: {
+        ai: { intent: "repair", device: "pc", issue: "no_power", 
+              suggestion: "Kiểm tra nguồn điện, dây nguồn, nút nguồn." },
+        service: SERVICE_MAP.no_power
+      },
+      slow: {
+        ai: { intent: "optimize", device: "pc", issue: "slow",
+              suggestion: "Vệ sinh quạt, tối ưu Windows, nâng cấp RAM/SSD." },
+        service: SERVICE_MAP.slow
+      }
+    };
+    
+    let key = "other";
+    if (text.includes("không lên")) key = "no_power";
+    else if (text.includes("chậm")) key = "slow";
+    
     return res.json({ 
-      success: false, 
-      error: "AI error", 
-      message: err.message 
+      success: true, 
+      ...(fallback[key] || fallback.no_power),
+      note: "Dùng chế độ dự phòng"
     });
   }
 });
 
 // =============================
-// CREATE BOOKING
+// BOOKING ROUTES
 // =============================
 app.post("/booking", async (req, res) => {
   try {
@@ -166,59 +149,28 @@ app.post("/booking", async (req, res) => {
       status: "new",
       created_at: new Date()
     });
-    console.log("✅ Booking created:", item._id);
     res.json({ success: true, data: item });
   } catch (err) {
-    console.error("❌ Booking error:", err.message);
     res.json({ success: false, error: err.message });
   }
 });
 
-// =============================
-// GET BOOKINGS
-// =============================
 app.get("/bookings", async (req, res) => {
-  try {
-    const data = await Booking.find().sort({ created_at: -1 });
-    res.json(data);
-  } catch (err) {
-    console.error("❌ Get bookings error:", err.message);
-    res.json({ success: false, error: err.message });
-  }
+  const data = await Booking.find().sort({ created_at: -1 });
+  res.json(data);
 });
 
-// =============================
-// UPDATE STATUS
-// =============================
 app.post("/booking/update", async (req, res) => {
   const { id, status } = req.body;
-  try {
-    await Booking.findByIdAndUpdate(id, { status });
-    console.log("✅ Booking updated:", id, status);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("❌ Update error:", err.message);
-    res.json({ success: false, error: err.message });
-  }
+  await Booking.findByIdAndUpdate(id, { status });
+  res.json({ success: true });
 });
 
 // =============================
 // HEALTH CHECK
 // =============================
 app.get("/", (req, res) => {
-  res.send("IT Repair CRM API running...");
-});
-
-// =============================
-// 404 HANDLER
-// =============================
-app.use((req, res) => {
-  res.status(404).json({ 
-    success: false, 
-    error: "Endpoint not found",
-    method: req.method,
-    path: req.url
-  });
+  res.send("IT Repair CRM API running with Gemini 🚀");
 });
 
 // =============================
