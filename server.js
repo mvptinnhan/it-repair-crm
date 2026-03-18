@@ -1,4 +1,4 @@
-// server.js (GEMINI PRODUCTION VERSION - FIXED)
+// server.js (GEMINI PRODUCTION VERSION - Using gemini-1.0-pro)
 console.log("🔑 ENV GEMINI_API_KEY:", process.env.GEMINI_API_KEY ? "✅ Có" : "❌ Không");
 console.log("🔑 Key length:", process.env.GEMINI_API_KEY?.length);
 console.log("🔑 Key prefix:", process.env.GEMINI_API_KEY?.substring(0, 10) + "...");
@@ -16,12 +16,14 @@ const PORT = process.env.PORT || 3000;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const MONGO_URL = process.env.MONGO_URL;
 
-// Khởi tạo Gemini
+// =============================
+// INIT GEMINI-1.0-PRO
+// =============================
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ 
-  model: "gemini-1.5-flash",
+  model: "gemini-1.0-pro",  // Model ổn định, chắc chắn tồn tại
   generationConfig: {
-    temperature: 0.1, // Giảm temperature để output ổn định hơn
+    temperature: 0.1,
     maxOutputTokens: 500,
   }
 });
@@ -65,7 +67,7 @@ app.use((req, res, next) => {
 });
 
 // =============================
-// AI ANALYZE WITH GEMINI - FIXED VERSION
+// AI ANALYZE WITH GEMINI-1.0-PRO
 // =============================
 app.post("/analyze", async (req, res) => {
   const { text } = req.body;
@@ -98,7 +100,7 @@ Lỗi cần phân tích: "${text}"
 CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT CỨ THỨ GÌ KHÁC.`;
 
   try {
-    console.log("📤 Gửi request đến Gemini...");
+    console.log("📤 Gửi request đến Gemini-1.0-pro...");
     
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -214,21 +216,23 @@ CHỈ TRẢ VỀ JSON, KHÔNG THÊM BẤT CỨ THỨ GÌ KHÁC.`;
         device: "pc",
         issue: "blue_screen",
         suggestion: "Kiểm tra driver mới cài, gỡ phần mềm xung đột, khởi động vào Safe Mode."
+      },
+      "other": {
+        intent: "repair",
+        device: "pc",
+        issue: "other",
+        suggestion: "Vui lòng gọi 0900 000 000 để được tư vấn trực tiếp."
       }
     };
     
+    // Xác định issue dựa trên text gốc
     let issue = "other";
-    if (text.includes("không lên")) issue = "no_power";
-    else if (text.includes("chậm")) issue = "slow";
+    if (text.includes("không lên") || text.includes("không nguồn")) issue = "no_power";
+    else if (text.includes("chậm") || text.includes("đơ")) issue = "slow";
     else if (text.includes("virus")) issue = "virus";
     else if (text.includes("xanh")) issue = "blue_screen";
     
-    const fallbackAI = fallbackSolutions[issue] || {
-      intent: "repair",
-      device: "pc",
-      issue: "other",
-      suggestion: "Vui lòng gọi 0900 000 000 để được tư vấn trực tiếp."
-    };
+    const fallbackAI = fallbackSolutions[issue];
     
     return res.json({ 
       success: true, 
